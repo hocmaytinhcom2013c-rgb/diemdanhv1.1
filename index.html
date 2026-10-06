@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hệ Thống Điểm Danh AI - Hỗ Trợ Mobile & Zalo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .video-container { 
+            position: relative; 
+            width: 100%; 
+            max-width: 640px; 
+            aspect-ratio: 4 / 3; 
+            margin: 0 auto; 
+            background: #000; 
+            border-radius: 8px; 
+            overflow: hidden; 
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); 
+        }
+        video, canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+        }
+        /* Lật ngược camera trước trên Mobile để khớp khung nhận diện */
+        .video-container.mirrored video, 
+        .video-container.mirrored canvas {
+            transform: scaleX(-1);
+        }
+        #loader { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; padding: 20px; text-align: center; }
+        .spinner { border: 6px solid #f3f3f3; border-top: 6px solid #2563eb; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .digital-clock { font-family: 'Courier New', Courier, monospace; font-size: 1.8rem; font-weight: bold; color: #1e3a8a; }
+        @media (min-width: 768px) { .digital-clock { font-size: 2.5rem; } }
+    </style>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <h2 class="mt-4 text-lg md:text-xl font-bold text-gray-700" id="load-text">Đang khởi tạo Mô hình AI Nhận diện...</h2>
+        <p class="text-gray-500 mt-2 text-sm">Vui lòng đợi trong giây lát.</p>
+    </div>
+
+    <nav class="bg-blue-600 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-2 sm:px-4">
+            <div class="flex flex-col sm:flex-row justify-between items-center py-3 gap-2">
+                <div class="text-xl sm:text-2xl font-bold">🏫 MÁY QUÉT ĐIỂM DANH TỰ ĐỘNG</div>
+                <div class="flex flex-wrap justify-center gap-1 sm:gap-2" id="tabs">
+                    <button onclick="showTab('tab-list')" class="px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-blue-700 rounded hover:bg-blue-800">1. Danh sách</button>
+                    <button onclick="showTab('tab-enroll')" class="px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-blue-700 rounded hover:bg-blue-800">2. Mẫu Mặt</button>
+                    <button onclick="showTab('tab-attendance')" class="px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-blue-700 rounded hover:bg-blue-800 font-bold text-yellow-300">3. MÁY QUÉT</button>
+                    <button onclick="showTab('tab-report')" class="px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-blue-700 rounded hover:bg-blue-800">4. Lịch sử</button>
+                    <button onclick="showTab('tab-zalo')" class="px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm bg-blue-700 rounded hover:bg-blue-800 text-blue-200">5. 📱 Zalo</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-2 sm:px-4 py-4 sm:py-8">
+        <!-- MODULE 1: QUẢN LÝ DANH SÁCH -->
+        <div id="tab-list" class="tab-content bg-white p-4 sm:p-6 rounded-lg shadow">
+            <h2 class="text-xl sm:text-2xl font-bold mb-4 border-b pb-2">📋 Quản lý Danh sách Học sinh</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h3 class="font-bold mb-3 text-blue-700">Thêm từng Học sinh</h3>
+                    <input type="text" id="hs-id" placeholder="Mã HS (VD: HS01)" class="w-full mb-3 p-2 border rounded text-sm">
+                    <input type="text" id="hs-name" placeholder="Họ và Tên" class="w-full mb-3 p-2 border rounded text-sm">
+                    <input type="text" id="hs-class" placeholder="Lớp học (VD: 8A1)" class="w-full mb-3 p-2 border rounded text-sm">
+                    <input type="text" id="hs-phone" placeholder="SĐT Phụ huynh (dùng gửi Zalo)" class="w-full mb-3 p-2 border rounded text-sm">
+                    <button onclick="addStudent()" class="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 font-bold mb-4 text-sm">Lưu thủ công</button>
+                    <hr class="my-4 border-gray-300">
+                    <h3 class="font-bold mb-3 text-green-700">Nhập hàng loạt từ Excel</h3>
+                    <button onclick="downloadTemplate()" class="w-full bg-gray-200 text-gray-700 py-2 rounded hover:bg-gray-300 text-xs sm:text-sm mb-3 font-bold">📥 Tải File Excel Mẫu</button>
+                    <label class="block text-sm text-gray-600 mb-1">Chọn file Excel dữ liệu:</label>
+                    <input type="file" id="excel-file" accept=".xlsx, .xls" class="w-full mb-3 p-1 border rounded bg-white text-sm">
+                    <button onclick="importExcel()" class="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600 font-bold text-sm">Lên danh sách từ Excel</button>
+                </div>
+                <div class="lg:col-span-2 bg-gray-50 p-4 rounded border">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+                        <h3 class="font-bold text-base sm:text-lg">Danh sách hiện tại</h3>
+                        <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                            <!-- NÚT MỚI: XÓA TOÀN BỘ LỚP ĐANG CHỌN -->
+                            <button onclick="deleteClassStudents()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded font-bold text-xs sm:text-sm flex items-center gap-1 shadow-sm transition-colors">
+                                🗑️ Xóa toàn bộ lớp
+                            </button>
+                            
+                            <label class="font-bold text-gray-700 text-sm">Lọc Lớp:</label>
+                            <select id="class-filter" onchange="renderStudentTable()" class="p-1.5 border rounded bg-white text-blue-700 font-bold text-sm flex-1 sm:flex-none">
+                                <option value="ALL">-- Tất cả --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto h-80 sm:h-96">
+                        <table class="w-full text-left bg-white border text-sm">
+                            <thead class="bg-gray-200 sticky top-0 shadow-sm">
+                                <tr>
+                                    <th class="p-2 border">Mã HS</th>
+                                    <th class="p-2 border">Họ tên</th>
+                                    <th class="p-2 border">Lớp</th>
+                                    <th class="p-2 border">SĐT Phụ huynh</th>
+                                    <th class="p-2 border text-center">Số mẫu mặt</th>
+                                    <th class="p-2 border text-center">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="student-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODULE 2: ĐĂNG KÝ KHUÔN MẶT -->
+        <div id="tab-enroll" class="tab-content bg-white p-4 sm:p-6 rounded-lg shadow text-center">
+            <h2 class="text-xl sm:text-2xl font-bold mb-2 border-b pb-2">👤 Lấy mẫu Khuôn mặt</h2>
+            <p class="mb-4 text-gray-600 text-xs sm:text-sm">📌 <b>Mẹo nâng cao độ nhạy:</b> Nên chụp từ 2 - 3 mẫu mặt (1 mẫu nhìn thẳng, 1 mẫu hơi nghiêng).</p>
+            
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-2 mb-4">
+                <select id="enroll-class-filter" onchange="updateEnrollStudentList()" class="p-2 border rounded w-full sm:w-48 text-sm font-bold text-blue-700">
+                    <option value="ALL">-- Tất cả Lớp --</option>
+                </select>
+                <select id="enroll-select" onchange="checkStudentSamples()" class="p-2 border rounded w-full sm:w-64 text-sm font-semibold">
+                    <option value="">-- Chọn học sinh --</option>
+                </select>
+            </div>
+
+            <div class="flex justify-center gap-2 mb-3">
+                <button onclick="switchCamera('enroll')" class="bg-gray-700 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-800">
+                    🔄 Đổi Camera (Trước / Sau)
+                </button>
+                <button onclick="resetStudentFaces()" class="bg-red-500 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-red-600">
+                    🗑️️ Xóa hết mẫu học sinh này
+                </button>
+            </div>
+
+            <div id="container-enroll" class="video-container mirrored mb-4">
+                <video id="video-enroll" autoplay muted playsinline></video>
+                <canvas id="canvas-enroll"></canvas>
+            </div>
+            <button onclick="captureFace()" class="bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 font-bold text-base shadow-lg">📸 Chụp & Thêm Mẫu Mặt</button>
+            <p id="enroll-status" class="mt-3 font-bold text-green-600 text-sm sm:text-base"></p>
+        </div>
+
+        <!-- MODULE 3: MÁY QUÉT ĐIỂM DANH -->
+        <div id="tab-attendance" class="tab-content active bg-white p-4 sm:p-6 rounded-lg shadow text-center">
+            <div class="flex flex-col md:flex-row justify-between items-center border-b pb-3 mb-4 gap-3">
+                <h2 class="text-xl sm:text-2xl font-bold text-blue-700">🎥 MÁY QUÉT ĐIỂM DANH TỰ ĐỘNG</h2>
+                <div class="bg-blue-50 p-2 sm:p-3 rounded-lg border border-blue-200 flex items-center justify-between w-full md:w-auto space-x-4 shadow-sm">
+                    <div>
+                        <div class="text-xs font-bold text-gray-500 uppercase tracking-wide">Thời gian</div>
+                        <div id="current-time-display" class="digital-clock">00:00:00</div>
+                    </div>
+                    <div class="border-l-2 border-blue-200 pl-4 text-left">
+                        <label class="block text-xs font-bold text-gray-600 mb-0.5">Giờ vào học:</label>
+                        <input type="time" id="start-time-setting" value="07:30" class="p-1 border border-blue-300 rounded text-sm sm:text-base font-bold text-red-600 bg-white">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-center mb-2">
+                <button onclick="switchCamera('attendance')" class="bg-gray-700 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-800 flex items-center gap-1">
+                    🔄 Đổi Camera (Trước / Sau)
+                </button>
+            </div>
+
+            <div id="container-attendance" class="video-container mirrored mb-4 border-2 sm:border-4 border-blue-500 shadow-xl">
+                <video id="video-attendance" autoplay muted playsinline></video>
+                <canvas id="canvas-attendance"></canvas>
+            </div>
+            <div id="attendance-alert" class="min-h-[3.5rem] flex items-center justify-center text-lg sm:text-2xl font-bold rounded-lg transition-all duration-300 px-2"></div>
+        </div>
+
+        <!-- MODULE 4: LỊCH SỬ BÁO CÁO -->
+        <div id="tab-report" class="tab-content bg-white p-4 sm:p-6 rounded-lg shadow">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 mb-4 gap-2">
+                <h2 class="text-xl sm:text-2xl font-bold">📊 Lịch sử Điểm danh</h2>
+                <div class="flex flex-wrap gap-2 w-full sm:w-auto">
+                    <button onclick="markAbsents()" class="flex-1 sm:flex-none bg-yellow-500 text-white px-3 py-1.5 rounded hover:bg-yellow-600 font-bold text-xs sm:text-sm">⚠️ Chốt Vắng Mặt</button>
+                    <button onclick="exportLogsToExcel()" class="flex-1 sm:flex-none bg-green-500 text-white px-3 py-1.5 rounded hover:bg-green-600 font-bold text-xs sm:text-sm">📥 Xuất Excel</button>
+                    <button onclick="clearLogs()" class="bg-red-500 text-white px-3 py-1.5 rounded hover:bg-red-600 font-bold text-xs sm:text-sm">Xóa Lịch Sử</button>
+                </div>
+            </div>
+            <div class="overflow-x-auto h-80 sm:h-96 border">
+                <table class="w-full text-left bg-white text-xs sm:text-sm">
+                    <thead class="bg-gray-200 sticky top-0">
+                        <tr>
+                            <th class="p-2 border">Ngày</th>
+                            <th class="p-2 border">Giờ</th>
+                            <th class="p-2 border">Mã HS</th>
+                            <th class="p-2 border">Họ tên</th>
+                            <th class="p-2 border">Lớp</th>
+                            <th class="p-2 border text-center">Trạng thái</th>
+                            <th class="p-2 border text-center">Thông báo Zalo</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- MODULE 5: CẤU HÌNH KẾT NỐI ZALO -->
+        <div id="tab-zalo" class="tab-content bg-white p-4 sm:p-6 rounded-lg shadow">
+            <h2 class="text-xl sm:text-2xl font-bold mb-4 border-b pb-2 text-blue-700">📱 Cấu hình Thông báo qua Zalo</h2>
+            <div class="max-w-2xl space-y-4">
+                <div class="flex items-center space-x-3 bg-gray-50 p-3 rounded border">
+                    <input type="checkbox" id="zalo-enabled" class="w-5 h-5 text-blue-600 rounded" onchange="saveZaloConfig()">
+                    <label for="zalo-enabled" class="font-bold text-gray-800 text-sm sm:text-base">Tự động gửi thông báo Zalo khi điểm danh thành công</label>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-gray-700 text-sm mb-1">Cấu hình Zalo Webhook / Server Endpoint:</label>
+                    <input type="text" id="zalo-webhook-url" placeholder="https://your-zalo-webhook-url.com/api/send-zalo" class="w-full p-2.5 border rounded text-sm bg-gray-50" onchange="saveZaloConfig()">
+                    <p class="text-xs text-gray-500 mt-1">Dán đường dẫn Zalo OA API, ZNS Webhook, Make/N8n hoặc Server gửi tin nhắn Zalo của nhà trường tại đây.</p>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-gray-700 text-sm mb-1">SĐT Giáo viên chủ nhiệm (mặc định nếu không có SĐT phụ huynh):</label>
+                    <input type="text" id="zalo-teacher-phone" placeholder="09xxxxxxxx" class="w-full p-2.5 border rounded text-sm bg-gray-50" onchange="saveZaloConfig()">
+                </div>
+
+                <div class="bg-blue-50 border border-blue-200 p-4 rounded text-xs sm:text-sm text-blue-900 leading-relaxed">
+                    <p class="font-bold mb-1">💡 Hướng dẫn gửi tin nhắn Zalo:</p>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li>Khi điểm danh, hệ thống tự động gọi HTTP POST đến Webhook đã nhập với dữ liệu JSON gồm: <code>student_id, name, class, date, time, status, phone</code>.</li>
+                        <li>Nếu sử dụng liên kết chia sẻ trực tiếp Zalo Web/App, bấm nút <b>"📱 Gửi Zalo"</b> ở bảng Lịch sử để mở đoạn chat Zalo với phụ huynh.</li>
+                    </ul>
+                </div>
+
+                <button onclick="testZaloNotification()" class="bg-blue-600 text-white font-bold px-4 py-2 rounded text-sm hover:bg-blue-700">🧪 Thử gửi tin nhắn Zalo thử nghiệm</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function unlockAudio() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        document.addEventListener('touchstart', unlockAudio, { once: true });
+        document.addEventListener('click', unlockAudio, { once: true });
+
+        function playBeep(type = 'success') {
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const oscillator = audioCtx.createOscillator();
+                oscillator.type = type === 'success' ? 'sine' : 'square';
+                oscillator.frequency.value = type === 'success' ? 800 : 300; 
+                oscillator.connect(audioCtx.destination);
+                oscillator.start();
+                setTimeout(() => oscillator.stop(), type === 'success' ? 200 : 400);
+            } catch (e) { console.log(e); }
+        }
+
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('current-time-display').innerText = now.toLocaleTimeString('vi-VN', { hour12: false });
+        }, 1000);
+
+        let db = {
+            students: JSON.parse(localStorage.getItem('ai_students')) || [],
+            logs: JSON.parse(localStorage.getItem('ai_logs')) || [],
+            zalo: JSON.parse(localStorage.getItem('ai_zalo')) || { enabled: false, webhook: '', teacherPhone: '' }
+        };
+        let faceMatcher = null;
+        let lastAttended = {};
+        
+        let streamEnroll = null;
+        let streamAttendance = null;
+        let attendanceInterval = null;
+        let currentFacingMode = 'user'; // 'user' (camera trước) hoặc 'environment' (camera sau)
+
+        function saveDB() {
+            localStorage.setItem('ai_students', JSON.stringify(db.students));
+            localStorage.setItem('ai_logs', JSON.stringify(db.logs));
+            localStorage.setItem('ai_zalo', JSON.stringify(db.zalo));
+        }
+
+        function loadZaloConfigUI() {
+            document.getElementById('zalo-enabled').checked = db.zalo.enabled || false;
+            document.getElementById('zalo-webhook-url').value = db.zalo.webhook || '';
+            document.getElementById('zalo-teacher-phone').value = db.zalo.teacherPhone || '';
+        }
+
+        function saveZaloConfig() {
+            db.zalo.enabled = document.getElementById('zalo-enabled').checked;
+            db.zalo.webhook = document.getElementById('zalo-webhook-url').value.trim();
+            db.zalo.teacherPhone = document.getElementById('zalo-teacher-phone').value.trim();
+            saveDB();
+        }
+
+        function showTab(tabId) {
+            stopCameras();
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+
+            if(tabId === 'tab-list') renderStudentTable();
+            if(tabId === 'tab-enroll') initEnroll();
+            if(tabId === 'tab-attendance') initAttendance();
+            if(tabId === 'tab-report') renderLogs();
+            if(tabId === 'tab-zalo') loadZaloConfigUI();
+        }
+
+        function stopCameras() {
+            if (streamEnroll) streamEnroll.getTracks().forEach(track => track.stop());
+            if (streamAttendance) streamAttendance.getTracks().forEach(track => track.stop());
+            if (attendanceInterval) clearInterval(attendanceInterval);
+        }
+
+        async function getCameraStream(facingMode) {
+            try {
+                return await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+            } catch (err) {
+                console.warn("Fallback to basic camera constraint:", err);
+                return await navigator.mediaDevices.getUserMedia({ video: true });
+            }
+        }
+
+        async function switchCamera(type) {
+            currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+            
+            const containerId = type === 'enroll' ? 'container-enroll' : 'container-attendance';
+            const container = document.getElementById(containerId);
+            if (currentFacingMode === 'user') {
+                container.classList.add('mirrored');
+            } else {
+                container.classList.remove('mirrored');
+            }
+
+            if (type === 'enroll') await initEnroll();
+            if (type === 'attendance') await initAttendance();
+        }
+
+        function downloadTemplate() {
+            const dataTemplate = [
+                { "Mã HS": "HS001", "Họ và Tên": "Nguyễn Văn An", "Lớp": "8A1", "SĐT Phụ Huynh": "0987654321" },
+                { "Mã HS": "HS002", "Họ và Tên": "Trần Thị Bình", "Lớp": "8A1", "SĐT Phụ Huynh": "0912345678" }
+            ];
+            const ws = XLSX.utils.json_to_sheet(dataTemplate);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "DanhSach");
+            XLSX.writeFile(wb, "Mau_Danh_Sach_Hoc_Sinh.xlsx");
+        }
+
+        function importExcel() {
+            const fileInput = document.getElementById('excel-file');
+            const file = fileInput.files[0];
+            if (!file) return alert("Vui lòng chọn file Excel trước!");
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(worksheet);
+                let added = 0;
+                rows.forEach(row => {
+                    let id = row["Mã HS"] ? String(row["Mã HS"]).trim() : "";
+                    let name = row["Họ và Tên"] ? String(row["Họ và Tên"]).trim() : "";
+                    let cls = row["Lớp"] ? String(row["Lớp"]).trim() : "";
+                    let phone = row["SĐT Phụ Huynh"] ? String(row["SĐT Phụ Huynh"]).trim() : "";
+                    if (id && name && !db.students.find(s => s.id === id)) {
+                        db.students.push({ id, name, class: cls, phone, descriptors: [] });
+                        added++;
+                    }
+                });
+                if (added > 0) {
+                    saveDB(); renderStudentTable();
+                    alert(`✅ Đã thêm ${added} học sinh mới từ Excel.`);
+                } else {
+                    alert("⚠ Không có dữ liệu hợp lệ hoặc bị trùng Mã HS.");
+                }
+                fileInput.value = "";
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function addStudent() {
+            let id = document.getElementById('hs-id').value.trim();
+            let name = document.getElementById('hs-name').value.trim();
+            let cls = document.getElementById('hs-class').value.trim();
+            let phone = document.getElementById('hs-phone').value.trim();
+            if(!id || !name) return alert("Vui lòng nhập Mã HS và Họ tên!");
+            if(db.students.find(s => s.id === id)) return alert("Mã này đã tồn tại!");
+            db.students.push({ id, name, class: cls, phone, descriptors: [] });
+            saveDB(); renderStudentTable();
+            document.getElementById('hs-id').value = '';
+            document.getElementById('hs-name').value = '';
+            document.getElementById('hs-phone').value = '';
+        }
+
+        function deleteStudent(id) {
+            if(confirm("Xóa học sinh này?")) {
+                db.students = db.students.filter(s => s.id !== id);
+                saveDB(); renderStudentTable();
+            }
+        }
+
+        // --- HÀM MỚI: XÓA TOÀN BỘ LỚP ĐANG CHỌN HOẶC TOÀN BỘ HS ---
+        function deleteClassStudents() {
+            if (db.students.length === 0) {
+                alert("Danh sách học sinh đang trống!");
+                return;
+            }
+
+            const filterVal = document.getElementById('class-filter').value;
+            let confirmMsg = "";
+            
+            if (filterVal === "ALL") {
+                confirmMsg = "⚠️ CẢNH BÁO NGUY HIỂM:\n\nBạn có chắc chắn muốn XÓA TOÀN BỘ HỌC SINH trong toàn bộ các lớp cùng tất cả dữ liệu khuôn mặt liên quan?";
+            } else {
+                confirmMsg = `⚠️ CẢNH BÁO QUAN TRỌNG:\n\nBạn có chắc chắn muốn XÓA TOÀN BỘ học sinh thuộc [ Lớp ${filterVal} ] cùng dữ liệu khuôn mặt của lớp này không?`;
+            }
+
+            if (confirm(confirmMsg)) {
+                if (filterVal === "ALL") {
+                    db.students = [];
+                } else {
+                    db.students = db.students.filter(s => s.class !== filterVal);
+                }
+                saveDB();
+                renderStudentTable();
+                alert("✅ Đã xóa thành công danh sách học sinh và cập nhật lại dữ liệu AI!");
+            }
+        }
+
+        function updateClassDropdown(selectId) {
+            const selectEl = document.getElementById(selectId);
+            const currentVal = selectEl.value;
+            const classes = [...new Set(db.students.map(s => s.class).filter(c => c))].sort();
+            selectEl.innerHTML = '<option value="ALL">-- Tất cả --</option>';
+            classes.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c; opt.text = `Lớp ${c}`;
+                if (c === currentVal) opt.selected = true;
+                selectEl.appendChild(opt);
+            });
+        }
+
+        function renderStudentTable() {
+            updateClassDropdown('class-filter');
+            const tbody = document.getElementById('student-table-body');
+            const filterVal = document.getElementById('class-filter').value;
+            tbody.innerHTML = '';
+            
+            let displayList = filterVal === "ALL" ? db.students : db.students.filter(s => s.class === filterVal);
+            displayList.forEach(s => {
+                let sampleCount = 0;
+                if (s.descriptors) sampleCount = s.descriptors.length;
+                else if (s.descriptor) sampleCount = 1;
+
+                const sampleBadge = sampleCount > 0 
+                    ? `<span class="bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">✅ (${sampleCount} mẫu)</span>` 
+                    : `<span class="bg-red-100 text-red-600 px-2 py-0.5 rounded font-bold">❌ (Chưa có)</span>`;
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="p-2 border font-medium">${s.id}</td>
+                        <td class="p-2 border font-medium">${s.name}</td>
+                        <td class="p-2 border font-bold text-blue-600">${s.class}</td>
+                        <td class="p-2 border font-mono text-gray-600">${s.phone || '--'}</td>
+                        <td class="p-2 border text-center">${sampleBadge}</td>
+                        <td class="p-2 border text-center"><button onclick="deleteStudent('${s.id}')" class="text-white bg-red-500 px-2 py-0.5 rounded hover:bg-red-600 text-xs">Xóa</button></td>
+                    </tr>
+                `;
+            });
+        }
+
+        // --- MODULE 2: LẤY MẪU KHUÔN MẶT ---
+        async function initEnroll() {
+            stopCameras();
+            updateClassDropdown('enroll-class-filter');
+            updateEnrollStudentList();
+            
+            const container = document.getElementById('container-enroll');
+            if (currentFacingMode === 'user') container.classList.add('mirrored');
+            else container.classList.remove('mirrored');
+
+            const video = document.getElementById('video-enroll');
+            try {
+                streamEnroll = await getCameraStream(currentFacingMode);
+                video.srcObject = streamEnroll;
+                await video.play();
+            } catch (e) { alert("Lỗi Camera! Vui lòng cấp quyền truy cập Camera."); }
+        }
+
+        function updateEnrollStudentList() {
+            const select = document.getElementById('enroll-select');
+            const filterVal = document.getElementById('enroll-class-filter').value;
+            select.innerHTML = '<option value="">-- Chọn học sinh --</option>';
+            let displayList = filterVal === "ALL" ? db.students : db.students.filter(s => s.class === filterVal);
+            displayList.forEach(s => {
+                let count = s.descriptors ? s.descriptors.length : (s.descriptor ? 1 : 0);
+                let opt = document.createElement('option');
+                opt.value = s.id;
+                opt.text = `${s.id} - ${s.name} (${count} mẫu)`;
+                select.appendChild(opt);
+            });
+            checkStudentSamples();
+        }
+
+        function checkStudentSamples() {
+            const id = document.getElementById('enroll-select').value;
+            const status = document.getElementById('enroll-status');
+            if(!id) { status.innerText = ""; return; }
+            const student = db.students.find(s => s.id === id);
+            let count = student.descriptors ? student.descriptors.length : (student.descriptor ? 1 : 0);
+            status.innerText = `Đã lưu ${count} mẫu mặt cho học sinh này.`;
+            status.className = "mt-3 font-bold text-blue-600 text-sm sm:text-base";
+        }
+
+        function resetStudentFaces() {
+            const id = document.getElementById('enroll-select').value;
+            if(!id) return alert("Vui lòng chọn học sinh cần xóa mẫu mặt!");
+            const student = db.students.find(s => s.id === id);
+            if(confirm(`Xóa toàn bộ mẫu khuôn mặt đã lưu của ${student.name}?`)) {
+                student.descriptors = [];
+                delete student.descriptor;
+                saveDB();
+                updateEnrollStudentList();
+                alert("Đã xóa. Bạn hãy chụp lại mẫu mặt mới!");
+            }
+        }
+
+        async function captureFace() {
+            const id = document.getElementById('enroll-select').value;
+            const status = document.getElementById('enroll-status');
+            if(!id) return alert("Vui lòng chọn học sinh trước!");
+
+            status.innerText = "⏳ Đang phân tích khuôn mặt...";
+            status.className = "mt-3 font-bold text-blue-600 text-sm sm:text-base";
+            
+            const video = document.getElementById('video-enroll');
+            if (video.readyState < 2) {
+                status.innerText = "❌ Video chưa sẵn sàng, vui lòng đợi 1 giây...";
+                return;
+            }
+
+            const captureOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.20 });
+            const detections = await faceapi.detectAllFaces(video, captureOptions).withFaceLandmarks().withFaceDescriptors();
+
+            if (!detections || detections.length === 0) {
+                status.innerText = "❌ Không thấy khuôn mặt. Hãy nhìn thẳng vào Camera trước/sau!";
+                status.className = "mt-3 font-bold text-red-600 text-sm sm:text-base";
+                return;
+            }
+
+            let primaryFace = detections[0];
+            if (detections.length > 1) {
+                primaryFace = detections.reduce((prev, curr) => {
+                    const prevArea = prev.detection.box.width * prev.detection.box.height;
+                    const currArea = curr.detection.box.width * curr.detection.box.height;
+                    return (currArea > prevArea) ? curr : prev;
+                });
+            }
+
+            const student = db.students.find(s => s.id === id);
+            if (!student.descriptors) student.descriptors = [];
+            
+            if (student.descriptor) {
+                student.descriptors.push(student.descriptor);
+                delete student.descriptor;
+            }
+
+            student.descriptors.push(Array.from(primaryFace.descriptor));
+            saveDB();
+
+            status.innerText = `✅ Đã thêm mẫu thứ ${student.descriptors.length} thành công cho ${student.name}!`;
+            status.className = "mt-3 font-bold text-green-600 text-sm sm:text-base";
+            updateEnrollStudentList();
+        }
+
+        // --- MODULE 3: ĐIỂM DANH TỰ ĐỘNG ---
+        async function initAttendance() {
+            stopCameras();
+            const video = document.getElementById('video-attendance');
+            const alertBox = document.getElementById('attendance-alert');
+
+            const container = document.getElementById('container-attendance');
+            if (currentFacingMode === 'user') container.classList.add('mirrored');
+            else container.classList.remove('mirrored');
+            
+            const labeledDescriptors = [];
+            db.students.forEach(s => {
+                let list = [];
+                if (s.descriptors && s.descriptors.length > 0) {
+                    list = s.descriptors.map(d => new Float32Array(d));
+                } else if (s.descriptor) {
+                    list = [new Float32Array(s.descriptor)];
+                }
+
+                if (list.length > 0) {
+                    labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(s.id, list));
+                }
+            });
+
+            if (labeledDescriptors.length === 0) {
+                alertBox.innerHTML = `<span class="text-red-500 text-sm sm:text-base">Chưa có mẫu khuôn mặt. Hãy qua tab "Mẫu Mặt" để đăng ký trước.</span>`;
+            } else {
+                // Giữ nguyên ngưỡng nhận diện chuẩn 0.60 chống nhận diện nhầm
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.60);
+            }
+            
+            try {
+                streamAttendance = await getCameraStream(currentFacingMode);
+                video.srcObject = streamAttendance;
+                await video.play();
+            } catch (e) { alert("Lỗi Camera! Vui lòng cho phép truy cập Camera."); return; }
+
+            const startDetection = () => {
+                const canvas = document.getElementById('canvas-attendance');
+                const displaySize = { width: video.videoWidth || video.clientWidth, height: video.videoHeight || video.clientHeight };
+                faceapi.matchDimensions(canvas, displaySize);
+                
+                const detectOptions = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.20 });
+
+                if (attendanceInterval) clearInterval(attendanceInterval);
+
+                attendanceInterval = setInterval(async () => {
+                    if(!document.getElementById('tab-attendance').classList.contains('active')) {
+                        clearInterval(attendanceInterval);
+                        return;
+                    }
+
+                    const detections = await faceapi.detectAllFaces(video, detectOptions).withFaceLandmarks().withFaceDescriptors();
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+                    resizedDetections.forEach(d => {
+                        const box = d.detection.box;
+                        if (box.width < 30 || box.height < 30) return; 
+
+                        let labelText = "Khách lạ / Chưa khớp";
+                        let boxColor = 'red';
+
+                        if (faceMatcher) {
+                            const match = faceMatcher.findBestMatch(d.descriptor);
+                            if (match.label !== 'unknown') {
+                                const student = db.students.find(s => s.id === match.label);
+                                if (student) {
+                                    const matchPercent = Math.round((1 - match.distance) * 100);
+                                    labelText = `${student.name} (${matchPercent}%)`;
+                                    boxColor = '#00ff00';
+                                    logAttendance(student);
+                                }
+                            }
+                        }
+
+                        const drawBox = new faceapi.draw.DrawBox(box, { label: labelText, boxColor: boxColor });
+                        drawBox.draw(canvas);
+                    });
+                }, 150);
+            };
+
+            if (video.videoWidth > 0) startDetection();
+            else video.onloadeddata = startDetection;
+        }
+
+        function logAttendance(student) {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('vi-VN');
+            const timeStr = now.toLocaleTimeString('vi-VN', { hour12: false });
+            
+            if (lastAttended[student.id]) {
+                const diff = now - lastAttended[student.id];
+                if (diff < 60000) return; // 60 giây chống trùng lặp
+            }
+            lastAttended[student.id] = now;
+
+            const startTimeSetting = document.getElementById('start-time-setting').value;
+            let isLate = false;
+            let statusText = "Có mặt";
+
+            if (startTimeSetting) {
+                const [targetHour, targetMin] = startTimeSetting.split(':').map(Number);
+                const limitTime = new Date();
+                limitTime.setHours(targetHour, targetMin, 0, 0);
+
+                if (now > limitTime) {
+                    isLate = true;
+                    statusText = "Muộn";
+                }
+            }
+
+            const logEntry = { 
+                date: dateStr, 
+                time: timeStr, 
+                id: student.id, 
+                name: student.name, 
+                class: student.class,
+                phone: student.phone || '',
+                status: statusText
+            };
+
+            db.logs.push(logEntry);
+            saveDB();
+
+            if (db.zalo && db.zalo.enabled) {
+                sendZaloNotification(logEntry);
+            }
+
+            const alertBox = document.getElementById('attendance-alert');
+            if (isLate) {
+                playBeep('late');
+                alertBox.className = "min-h-[3.5rem] flex items-center justify-center text-base sm:text-xl font-bold rounded-lg transition-all duration-300 bg-red-100 border-2 border-red-500 text-red-700 mt-2 p-2";
+                alertBox.innerHTML = `⚠️ ${timeStr}: <b>${student.name} (${student.class})</b> - ĐI MUỘN!`;
+            } else {
+                playBeep('success');
+                alertBox.className = "min-h-[3.5rem] flex items-center justify-center text-base sm:text-xl font-bold rounded-lg transition-all duration-300 bg-green-100 border-2 border-green-500 text-green-700 mt-2 p-2";
+                alertBox.innerHTML = `✅ ${timeStr}: <b>${student.name} (${student.class})</b> - ĐÚNG GIỜ`;
+            }
+            
+            setTimeout(() => { 
+                alertBox.innerHTML = ''; 
+                alertBox.className = "min-h-[3.5rem] flex items-center justify-center"; 
+            }, 4000);
+        }
+
+        // --- XỬ LÝ ZALO ---
+        async function sendZaloNotification(log) {
+            const messageText = `[ĐIỂM DANH ZALO]\nHọc sinh: ${log.name} (Mã: ${log.id})\nLớp: ${log.class}\nThời gian: ${log.time} - ${log.date}\nTrạng thái: ${log.status.toUpperCase()}`;
+            const targetPhone = log.phone || db.zalo.teacherPhone || "";
+
+            if (db.zalo.webhook) {
+                try {
+                    await fetch(db.zalo.webhook, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            student_id: log.id,
+                            name: log.name,
+                            class: log.class,
+                            phone: targetPhone,
+                            date: log.date,
+                            time: log.time,
+                            status: log.status,
+                            message: messageText
+                        })
+                    });
+                    console.log("✅ Đã gửi webhook Zalo thành công!");
+                } catch (e) {
+                    console.error("❌ Lỗi gửi Webhook Zalo:", e);
+                }
+            }
+        }
+
+        function openZaloChat(phone, name, status, time, date) {
+            const targetPhone = phone || db.zalo.teacherPhone;
+            if (!targetPhone) return alert("Học sinh này chưa có SĐT phụ huynh và chưa đặt SĐT GVCN trong mục Cấu hình Zalo!");
+            
+            const msg = encodeURIComponent(`Kính gửi Phụ huynh, học sinh ${name} đã điểm danh vào lớp lúc ${time} ngày ${date}. Trạng thái: ${status}.`);
+            const cleanPhone = targetPhone.replace(/[^0-9]/g, '');
+            window.open(`https://zalo.me/${cleanPhone}?text=${msg}`, '_blank');
+        }
+
+        function testZaloNotification() {
+            const testLog = {
+                id: "TEST01",
+                name: "Học Sinh Thử Nghiệm",
+                class: "DEMO",
+                phone: db.zalo.teacherPhone || "0987654321",
+                date: new Date().toLocaleDateString('vi-VN'),
+                time: new Date().toLocaleTimeString('vi-VN', { hour12: false }),
+                status: "Có mặt"
+            };
+            sendZaloNotification(testLog);
+            alert("Đã phát lệnh thử nghiệm Zalo! Kiểm tra lại console hoặc Endpoint Webhook của bạn.");
+        }
+
+        // --- MODULE 4: LỊCH SỬ BÁO CÁO ---
+        function renderLogs() {
+            const tbody = document.getElementById('log-table-body');
+            tbody.innerHTML = '';
+            const reversedLogs = [...db.logs].reverse();
+            reversedLogs.forEach(log => {
+                let statusBadge = "";
+                if(log.status === "Có mặt") statusBadge = `<span class="bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">Có mặt</span>`;
+                else if(log.status === "Muộn") statusBadge = `<span class="bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-bold">Muộn</span>`;
+                else if(log.status === "Vắng mặt") statusBadge = `<span class="bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold">Vắng mặt</span>`;
+                else statusBadge = log.status || "Có mặt"; 
+
+                const zaloBtn = `<button onclick="openZaloChat('${log.phone || ''}', '${log.name}', '${log.status}', '${log.time}', '${log.date}')" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">📱 Gửi Zalo</button>`;
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="p-2 border">${log.date}</td>
+                        <td class="p-2 border font-bold text-blue-600">${log.time}</td>
+                        <td class="p-2 border">${log.id}</td>
+                        <td class="p-2 border">${log.name}</td>
+                        <td class="p-2 border">${log.class}</td>
+                        <td class="p-2 border text-center">${statusBadge}</td>
+                        <td class="p-2 border text-center">${zaloBtn}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function markAbsents() {
+            const todayStr = new Date().toLocaleDateString('vi-VN');
+            const logsToday = db.logs.filter(l => l.date === todayStr && l.status !== "Vắng mặt");
+            const attendedIds = logsToday.map(l => l.id);
+            let absentCount = 0;
+            let newlyMarked = 0;
+
+            db.students.forEach(s => {
+                if (!attendedIds.includes(s.id)) {
+                    const alreadyMarkedAbsent = db.logs.find(l => l.date === todayStr && l.id === s.id && l.status === "Vắng mặt");
+                    if (!alreadyMarkedAbsent) {
+                        const absentLog = { 
+                            date: todayStr, 
+                            time: "--:--:--", 
+                            id: s.id, 
+                            name: s.name, 
+                            class: s.class, 
+                            phone: s.phone || '',
+                            status: "Vắng mặt" 
+                        };
+                        db.logs.push(absentLog);
+                        if (db.zalo && db.zalo.enabled) sendZaloNotification(absentLog);
+                        newlyMarked++;
+                    }
+                    absentCount++;
+                }
+            });
+
+            if (newlyMarked > 0) {
+                saveDB();
+                renderLogs();
+                alert(`✅ Đã chốt danh sách! Ghi nhận ${newlyMarked} học sinh vắng mặt hôm nay.`);
+            } else {
+                alert(`Không có thay đổi. Tổng số vắng mặt hôm nay là ${absentCount} học sinh.`);
+            }
+        }
+
+        function clearLogs() {
+            if(confirm("Xóa toàn bộ lịch sử điểm danh?")) {
+                db.logs = []; saveDB(); renderLogs();
+            }
+        }
+        
+        function exportLogsToExcel() {
+            if(db.logs.length === 0) return alert("Chưa có lịch sử điểm danh!");
+            const ws = XLSX.utils.json_to_sheet(db.logs.map(log => ({
+                "Ngày": log.date,
+                "Giờ": log.time,
+                "Mã HS": log.id,
+                "Họ và Tên": log.name,
+                "Lớp": log.class,
+                "SĐT Phụ Huynh": log.phone || '',
+                "Trạng thái": log.status || "Có mặt"
+            })));
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "LichSu");
+            XLSX.writeFile(wb, "Bao_Cao_Diem_Danh.xlsx");
+        }
+
+        window.onload = async () => {
+            const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+            try {
+                await Promise.all([
+                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+                document.getElementById('loader').style.display = 'none';
+                showTab('tab-attendance');
+            } catch (error) {
+                document.getElementById('load-text').innerHTML = "Lỗi tải mô hình AI. Vui lòng kiểm tra kết nối mạng.";
+                document.getElementById('load-text').className = "text-red-500 text-lg font-bold mt-4";
+            }
+        };
+    </script>
+</body>
+</html>
